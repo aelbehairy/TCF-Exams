@@ -132,9 +132,13 @@
     will-change: transform;
   }
   .slide {
-    min-width: 100%;
+    flex: 0 0 100%;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
     height: 100%;
     overflow-y: auto;
+    overflow-x: hidden;
     -webkit-overflow-scrolling: touch;
     padding: 14px 12px 40px;
   }
@@ -146,55 +150,59 @@
     margin: 2px 4px 10px;
     font-weight: 700;
   }
-  table {
+  .answers {
     width: 100%;
+    table-layout: fixed;
     border-collapse: collapse;
     background: var(--card);
     border-radius: 12px;
     overflow: hidden;
     box-shadow: 0 1px 3px rgba(0,0,0,0.05);
   }
-  thead th {
-    background: var(--green-soft);
-    color: var(--green-deep);
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.4px;
-    padding: 8px 8px;
-    text-align: left;
-    font-weight: 700;
-  }
-  th.ar-h, td.ar {
-    text-align: left;
-    direction: rtl;
-  }
-  tbody tr:nth-child(even) { background: #fbfaf6; }
-  tbody tr + tr td { border-top: 1px solid var(--line); }
-  td {
+  .answers tr:nth-child(even) { background: #fbfaf6; }
+  .answers tr + tr td { border-top: 1px solid var(--line); }
+  .answers td {
     padding: 9px 8px;
     vertical-align: top;
-    font-size: 13.5px;
-    line-height: 1.4;
   }
   td.num {
-    width: 26px;
-    text-align: center;
-    font-weight: 700;
-    color: var(--green-mid);
-    font-variant-numeric: tabular-nums;
-  }
-  td.letter {
     width: 24px;
     text-align: center;
     font-weight: 700;
-    color: var(--accent);
+    color: var(--green-mid);
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
   }
-  td.fr { width: 42%; }
-  td.ar {
-    width: 46%;
+  td.letter {
+    width: 22px;
+    text-align: center;
+    font-weight: 700;
+    color: var(--accent);
+    font-size: 12.5px;
+  }
+  td.answer {
+    width: auto;
+    overflow: hidden;
+  }
+  .fr-line {
+    white-space: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    font-size: 13.5px;
+    line-height: 1.4;
+    color: var(--ink);
+    padding-bottom: 3px;
+    scrollbar-width: none;
+  }
+  .fr-line::-webkit-scrollbar { display: none; }
+  .ar-line {
+    direction: rtl;
+    text-align: right;
     font-family: 'NotoNaskhArabic', 'Traditional Arabic', serif;
-    font-size: 18px;
-    line-height: 1.7;
+    font-size: 17px;
+    line-height: 1.6;
+    color: var(--green-deep);
+    margin-top: 4px;
   }
   footer {
     padding: 10px 16px 16px;
@@ -255,22 +263,21 @@ DATA.forEach((sec, idx) => {
     rowsHtml += `<tr>
       <td class="num">${r.no}</td>
       <td class="letter">${r.letter}</td>
-      <td class="fr">${escapeHtml(r.fr)}</td>
-      <td class="ar">${escapeHtml(r.ar)}</td>
+      <td class="answer">
+        <div class="fr-line">${escapeHtml(r.fr)}</div>
+        <div class="ar-line">${escapeHtml(r.ar)}</div>
+      </td>
     </tr>`;
   });
 
   slide.innerHTML = `
     <h2>Compréhension ${sec.num} — الفهم ${sec.num}</h2>
-    <table>
-      <thead>
-        <tr>
-          <th>No.</th>
-          <th>ABCD</th>
-          <th>Réponse (Français)</th>
-          <th class="ar-h">الإجابة (عربي)</th>
-        </tr>
-      </thead>
+    <table class="answers">
+      <colgroup>
+        <col style="width:26px">
+        <col style="width:24px">
+        <col>
+      </colgroup>
       <tbody>${rowsHtml}</tbody>
     </table>
   `;
