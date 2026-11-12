@@ -87,6 +87,22 @@
     background: var(--accent);
     color: white;
   }
+  .mode-btn.wrong-btn { flex: 0 0 auto; padding: 8px 10px; }
+  .mode-btn.wrong-btn.active { background: #c0392b; }
+  td.chk { width: 40px; text-align: center; vertical-align: middle !important; }
+  td.chk input {
+    width: 24px; height: 24px; margin: 0;
+    accent-color: #c0392b;
+    cursor: pointer;
+  }
+  tr.is-wrong td { background: #fdeceb !important; }
+  tr.is-wrong td.num { color: #c0392b; }
+  .wrong-count { display: inline-block; direction: ltr; unicode-bidi: isolate; color: #c0392b; font-weight: 700; margin-inline-start: 8px; text-transform: none; letter-spacing: 0; }
+  .only-wrong tr.data-row:not(.is-wrong) { display: none; }
+  .only-wrong tr.level-sep.empty { display: none; }
+  .empty-note { display: none; text-align: center; color: #8b8577; font-size: 13px; padding: 24px 8px; }
+  .only-wrong .slide.no-wrong .empty-note { display: block; }
+  .only-wrong .slide.no-wrong table.answers { display: none; }
   .nav-row {
     display: flex;
     align-items: center;
@@ -285,6 +301,7 @@
     <div class="mode-row">
       <button class="mode-btn active" id="modeReadingBtn">📖 القراءة</button>
       <button class="mode-btn" id="modeListeningBtn">🎧 الاستماع</button>
+      <button class="mode-btn wrong-btn" id="wrongOnlyBtn">❌ الغلط <span id="wrongTotal">0</span></button>
     </div>
     <div class="nav-row">
       <button class="nav-btn" id="prevBtn" aria-label="السابق">‹</button>
@@ -375,6 +392,45 @@ function escapeHtml(s) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+const WRONG_KEY = 'tcf_wrong_v1';
+function wrongKey(no, examNum) { return mode + '-' + examNum + '-' + no; }
+const wrongSet = (function () {
+  try {
+    const raw = localStorage.getItem(WRONG_KEY);
+    if (raw) { const a = JSON.parse(raw); if (Array.isArray(a)) return new Set(a); }
+  } catch (e) {}
+  return new Set();
+})();
+let onlyWrong = false;
+function saveWrong() {
+  try { localStorage.setItem(WRONG_KEY, JSON.stringify([...wrongSet])); } catch (e) {}
+}
+function refreshSlide(slide) {
+  const rows = slide.querySelectorAll('tr.data-row');
+  let n = 0;
+  rows.forEach(tr => { if (tr.classList.contains('is-wrong')) n++; });
+  slide.querySelector('.wrong-count').textContent = n ? '· ❌ ' + n : '';
+  slide.classList.toggle('no-wrong', n === 0);
+  // hide level headers that have no wrong rows under them
+  let sep = null, any = false;
+  const flush = () => { if (sep) sep.classList.toggle('empty', !any); };
+  slide.querySelectorAll('tr.level-sep, tr.data-row').forEach(tr => {
+    if (tr.classList.contains('level-sep')) { flush(); sep = tr; any = false; }
+    else if (tr.classList.contains('is-wrong')) any = true;
+  });
+  flush();
+}
+function refreshWrongTotal() {
+  let n = 0;
+  wrongSet.forEach(k => { if (k.startsWith(mode + '-')) n++; });
+  document.getElementById('wrongTotal').textContent = n;
+}
+function setOnlyWrong(v) {
+  onlyWrong = v;
+  track.classList.toggle('only-wrong', v);
+  document.getElementById('wrongOnlyBtn').classList.toggle('active', v);
+}
+
 function buildSlides() {
   track.innerHTML = '';
   jumpSelect.innerHTML = '';
@@ -391,7 +447,7 @@ function buildSlides() {
       const lvl = levelForQuestion(r.no);
       if (lvl && lvl.level !== lastLevel) {
         rowsHtml += `<tr class="level-sep">
-          <td colspan="3">
+          <td colspan="4">
             <div class="level-sep-inner">
               <span class="level-name">${lvl.level}</span>
               <span class="level-range">أسئلة ${lvl.from}–${lvl.to}</span>
@@ -401,7 +457,9 @@ function buildSlides() {
         lastLevel = lvl.level;
       }
       const rowClass = 'data-row' + (dataRowCount % 2 === 1 ? ' row-even' : '');
-      rowsHtml += `<tr class="${rowClass}">
+      const wk = wrongKey(r.no, sec.num);
+      const isW = wrongSet.has(wk);
+      rowsHtml += `<tr class="${rowClass}${isW ? ' is-wrong' : ''}" data-wk="${wk}">
         <td class="num">${r.no}</td>
         <td class="letter">${r.letter}</td>
         <td class="answer">
@@ -409,22 +467,26 @@ function buildSlides() {
           <div class="ar-line">${escapeHtml(r.ar)}</div>
           ${r.dup ? `<div class="dup-line">🔁 ${escapeHtml(r.dup)}</div>` : ''}
         </td>
+        <td class="chk"><input type="checkbox" aria-label="غلط" ${isW ? 'checked' : ''}></td>
       </tr>`;
       dataRowCount++;
     });
 
     slide.innerHTML = `
-      <h2>Compréhension ${sec.num} — الفهم ${sec.num}</h2>
+      <h2>Compréhension ${sec.num} — الفهم ${sec.num}<span class="wrong-count"></span></h2>
+      <div class="empty-note">مفيش أسئلة غلط في الامتحان ده ✅</div>
       <table class="answers">
         <colgroup>
           <col style="width:26px">
           <col style="width:24px">
           <col>
+          <col style="width:40px">
         </colgroup>
         <tbody>${rowsHtml}</tbody>
       </table>
     `;
     track.appendChild(slide);
+    refreshSlide(slide);
 
     const opt = document.createElement('option');
     opt.value = idx;
@@ -459,6 +521,7 @@ function switchMode(newMode) {
   modeReadingBtn.classList.toggle('active', mode === 'reading');
   modeListeningBtn.classList.toggle('active', mode === 'listening');
   buildSlides();
+  refreshWrongTotal();
   track.style.transition = 'none';
   current = Math.min(positionByMode[mode] || 0, total - 1);
   render();
@@ -478,6 +541,19 @@ modeListeningBtn.classList.toggle('active', mode === 'listening');
 current = Math.min(positionByMode[mode] || 0, total - 1);
 
 buildSlides();
+refreshWrongTotal();
+track.addEventListener('change', (e) => {
+  const cb = e.target;
+  if (!cb.matches || !cb.matches('td.chk input')) return;
+  const tr = cb.closest('tr');
+  const wk = tr.dataset.wk;
+  if (cb.checked) wrongSet.add(wk); else wrongSet.delete(wk);
+  tr.classList.toggle('is-wrong', cb.checked);
+  saveWrong();
+  refreshSlide(tr.closest('.slide'));
+  refreshWrongTotal();
+});
+document.getElementById('wrongOnlyBtn').addEventListener('click', () => setOnlyWrong(!onlyWrong));
 
 prevBtn.addEventListener('click', () => goTo(current - 1));
 nextBtn.addEventListener('click', () => goTo(current + 1));
