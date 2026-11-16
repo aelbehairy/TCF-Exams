@@ -103,6 +103,13 @@
   .empty-note { display: none; text-align: center; color: #8b8577; font-size: 13px; padding: 24px 8px; }
   .only-wrong .slide.no-wrong .empty-note { display: block; }
   .only-wrong .slide.no-wrong table.answers { display: none; }
+  .sync-toggle { display:block; margin: 0 auto 6px; background: none; border: 1px solid var(--line); color: #6b6657; border-radius: 8px; padding: 6px 12px; font-size: 12px; cursor: pointer; }
+  .sync-panel { display: none; margin: 0 12px 10px; padding: 10px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; font-size: 12px; color: #4a463c; }
+  .sync-panel.open { display: block; }
+  .sync-panel textarea { width: 100%; height: 70px; font-size: 11px; direction: ltr; border: 1px solid var(--line); border-radius: 6px; padding: 6px; margin: 6px 0; }
+  .sync-panel button { background: var(--green-deep); color: #fff; border: none; border-radius: 8px; padding: 8px 10px; font-size: 12px; margin: 2px 2px 0 0; cursor: pointer; }
+  .sync-panel button.alt { background: #8b8577; }
+  .sync-msg { margin-top: 6px; color: var(--green-mid); font-weight: 700; }
   .nav-row {
     display: flex;
     align-items: center;
@@ -313,6 +320,15 @@
   <main>
     <div class="track" id="track"></div>
   </main>
+  <button class="sync-toggle" id="syncToggle">🔄 نقل العلامات بين الأجهزة</button>
+  <div class="sync-panel" id="syncPanel">
+    <div>١) من الجهاز اللي علّمت عليه: دوس «نسخ الكود». ٢) في الجهاز التاني الصق الكود هنا ودوس «دمج».</div>
+    <textarea id="syncBox" placeholder="الكود هنا..."></textarea>
+    <button id="syncExport">📋 نسخ الكود</button>
+    <button id="syncMerge">➕ دمج</button>
+    <button id="syncReplace" class="alt">♻️ استبدال</button>
+    <div class="sync-msg" id="syncMsg"></div>
+  </div>
   <div class="swipe-hint">اسحب يمين / يسار للتنقل بين الامتحانات</div>
   <footer id="appFooter">TCF Canada — Reading Answers · فرنسي / عربي</footer>
 </div>
@@ -554,6 +570,47 @@ track.addEventListener('change', (e) => {
   refreshWrongTotal();
 });
 document.getElementById('wrongOnlyBtn').addEventListener('click', () => setOnlyWrong(!onlyWrong));
+
+
+(function () {
+  const box = document.getElementById('syncBox');
+  const msg = document.getElementById('syncMsg');
+  document.getElementById('syncToggle').addEventListener('click', () => {
+    document.getElementById('syncPanel').classList.toggle('open');
+  });
+  function say(t) { msg.textContent = t; }
+  function afterChange() {
+    saveWrong();
+    buildSlides();
+    refreshWrongTotal();
+    render();
+  }
+  document.getElementById('syncExport').addEventListener('click', async () => {
+    const code = 'TCFW1:' + btoa(unescape(encodeURIComponent(JSON.stringify([...wrongSet]))));
+    box.value = code;
+    try { await navigator.clipboard.writeText(code); say('تم النسخ ✅ (' + wrongSet.size + ' سؤال)'); }
+    catch (e) { box.select(); say('انسخ الكود يدوياً من الخانة (' + wrongSet.size + ' سؤال)'); }
+  });
+  function parse() {
+    const v = box.value.trim();
+    if (!v.startsWith('TCFW1:')) { say('الكود مش صحيح ❌'); return null; }
+    try {
+      const a = JSON.parse(decodeURIComponent(escape(atob(v.slice(6)))));
+      if (!Array.isArray(a)) throw 0;
+      return a.filter(x => typeof x === 'string');
+    } catch (e) { say('الكود مش صحيح ❌'); return null; }
+  }
+  document.getElementById('syncMerge').addEventListener('click', () => {
+    const a = parse(); if (!a) return;
+    a.forEach(k => wrongSet.add(k));
+    afterChange(); say('تم الدمج ✅ الإجمالي: ' + wrongSet.size);
+  });
+  document.getElementById('syncReplace').addEventListener('click', () => {
+    const a = parse(); if (!a) return;
+    wrongSet.clear(); a.forEach(k => wrongSet.add(k));
+    afterChange(); say('تم الاستبدال ✅ الإجمالي: ' + wrongSet.size);
+  });
+})();
 
 prevBtn.addEventListener('click', () => goTo(current - 1));
 nextBtn.addEventListener('click', () => goTo(current + 1));
