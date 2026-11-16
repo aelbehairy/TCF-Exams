@@ -330,6 +330,7 @@
     <div class="sync-msg" id="syncMsg"></div>
   </div>
   <div class="swipe-hint">اسحب يمين / يسار للتنقل بين الامتحانات</div>
+  <div id="syncStatus" style="text-align:center;font-size:11px;color:#8b8577;padding-top:4px"></div>
   <footer id="appFooter">TCF Canada — Reading Answers · فرنسي / عربي</footer>
 </div>
 
@@ -418,8 +419,63 @@ const wrongSet = (function () {
   return new Set();
 })();
 let onlyWrong = false;
+const STATE_KEY = 'tcf_wrong_state_v1';
+// state: key -> [isWrong(0/1), timestamp]; lets un-checking sync across devices too
+const wrongState = (function () {
+  let s = {};
+  try { const raw = localStorage.getItem(STATE_KEY); if (raw) s = JSON.parse(raw) || {}; } catch (e) {}
+  wrongSet.forEach(k => { if (!s[k]) s[k] = [1, 0]; });   // legacy entries
+  return s;
+})();
+function setWrong(k, isW) {
+  wrongState[k] = [isW ? 1 : 0, Date.now()];
+  if (isW) wrongSet.add(k); else wrongSet.delete(k);
+  saveWrong();
+  pushKeys([k]);
+}
 function saveWrong() {
-  try { localStorage.setItem(WRONG_KEY, JSON.stringify([...wrongSet])); } catch (e) {}
+  try {
+    localStorage.setItem(WRONG_KEY, JSON.stringify([...wrongSet]));
+    localStorage.setItem(STATE_KEY, JSON.stringify(wrongState));
+  } catch (e) {}
+}
+
+// ---------- automatic cloud sync (Firebase Realtime Database REST) ----------
+const SYNC_BASE = 'https://tcfexam-b19ea-default-rtdb.firebaseio.com';
+const SYNC_ID = 'efCNgDoinQTUIacM7-iN5Zkv';
+const SYNC_ON = SYNC_BASE.startsWith('http');
+const syncUrl = () => SYNC_BASE.replace(/\/$/, '') + '/tcf_wrong/' + SYNC_ID + '.json';
+function setSyncStatus(t) { const el = document.getElementById('syncStatus'); if (el) el.textContent = t; }
+async function pushKeys(keys) {
+  if (!SYNC_ON) return;
+  const body = {}; keys.forEach(k => body[k] = wrongState[k]);
+  try {
+    const r = await fetch(syncUrl(), { method: 'PATCH', body: JSON.stringify(body) });
+    setSyncStatus(r.ok ? '☁️ متزامن' : '⚠️ فشل المزامنة');
+  } catch (e) { setSyncStatus('⚠️ أوفلاين — هيتزامن بعدين'); }
+}
+async function syncNow() {
+  if (!SYNC_ON) return;
+  try {
+    const r = await fetch(syncUrl());
+    if (!r.ok) throw 0;
+    const remote = (await r.json()) || {};
+    let changed = false;
+    Object.keys(remote).forEach(k => {
+      const rv = remote[k];
+      if (!Array.isArray(rv)) return;
+      if (!wrongState[k] || rv[1] > wrongState[k][1]) {
+        wrongState[k] = rv;
+        if (rv[0]) wrongSet.add(k); else wrongSet.delete(k);
+        changed = true;
+      }
+    });
+    // push anything local that remote doesn't have / has older
+    const toPush = Object.keys(wrongState).filter(k => !remote[k] || wrongState[k][1] > remote[k][1]);
+    saveWrong();
+    if (changed) { buildSlides(); refreshWrongTotal(); render(); }
+    if (toPush.length) await pushKeys(toPush); else setSyncStatus('☁️ متزامن');
+  } catch (e) { setSyncStatus('⚠️ أوفلاين — هيتزامن بعدين'); }
 }
 function refreshSlide(slide) {
   const rows = slide.querySelectorAll('tr.data-row');
@@ -558,14 +614,20 @@ current = Math.min(positionByMode[mode] || 0, total - 1);
 
 buildSlides();
 refreshWrongTotal();
+if (SYNC_ON) {
+  setSyncStatus('☁️ جاري المزامنة...');
+  syncNow();
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) syncNow(); });
+  window.addEventListener('focus', syncNow);
+  setInterval(() => { if (!document.hidden) syncNow(); }, 30000);
+}
 track.addEventListener('change', (e) => {
   const cb = e.target;
   if (!cb.matches || !cb.matches('td.chk input')) return;
   const tr = cb.closest('tr');
   const wk = tr.dataset.wk;
-  if (cb.checked) wrongSet.add(wk); else wrongSet.delete(wk);
+  setWrong(wk, cb.checked);
   tr.classList.toggle('is-wrong', cb.checked);
-  saveWrong();
   refreshSlide(tr.closest('.slide'));
   refreshWrongTotal();
 });
@@ -602,13 +664,16 @@ document.getElementById('wrongOnlyBtn').addEventListener('click', () => setOnlyW
   }
   document.getElementById('syncMerge').addEventListener('click', () => {
     const a = parse(); if (!a) return;
-    a.forEach(k => wrongSet.add(k));
-    afterChange(); say('تم الدمج ✅ الإجمالي: ' + wrongSet.size);
+    a.forEach(k => { if (!wrongSet.has(k)) { wrongState[k] = [1, Date.now()]; wrongSet.add(k); } });
+    afterChange(); pushKeys(a); say('تم الدمج ✅ الإجمالي: ' + wrongSet.size);
   });
   document.getElementById('syncReplace').addEventListener('click', () => {
     const a = parse(); if (!a) return;
-    wrongSet.clear(); a.forEach(k => wrongSet.add(k));
-    afterChange(); say('تم الاستبدال ✅ الإجمالي: ' + wrongSet.size);
+    const now = Date.now(), changedKeys = [];
+    [...wrongSet].forEach(k => { if (!a.includes(k)) { wrongState[k] = [0, now]; changedKeys.push(k); } });
+    wrongSet.clear();
+    a.forEach(k => { if (!wrongState[k] || !wrongState[k][0]) { wrongState[k] = [1, now]; changedKeys.push(k); } wrongSet.add(k); });
+    afterChange(); pushKeys(changedKeys); say('تم الاستبدال ✅ الإجمالي: ' + wrongSet.size);
   });
 })();
 
